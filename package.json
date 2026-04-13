@@ -1,0 +1,25 @@
+{
+  "name": "container-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Governed test container app for ruleset, attestation, and coverage validation.",
+  "type": "module",
+  "engines": {
+    "node": ">=20 <21"
+  },
+  "scripts": {
+    "clean": "node ./scripts/clean.mjs",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "build": "npm run clean && tsc -p tsconfig.json",
+    "test": "npm run build && node ./scripts/run-tests.mjs",
+    "sbom": "node ./scripts/generate-sbom.mjs",
+    "generate:evidence": "node ./scripts/generate-evidence.mjs",
+    "verify": "npm run check && npm test && npm run sbom && npm run generate:evidence",
+    "start": "node dist/src/index.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "c8": "^10.1.3",
+    "typescript": "^5.7.3"
+  }
+}
