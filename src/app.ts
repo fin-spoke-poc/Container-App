@@ -41,6 +41,16 @@ function createUrl(request: IncomingMessage): URL {
   return new URL(request.url ?? "/", `http://${request.headers.host ?? "127.0.0.1"}`);
 }
 
+function decodeRouteParam(match: RegExpMatchArray, index: number): string {
+  const value = match[index];
+
+  if (value === undefined) {
+    throw new Error("Route parameter is required.");
+  }
+
+  return decodeURIComponent(value);
+}
+
 export function createAppServer(dependencies: AppDependencies = {}): Server {
   const store = dependencies.store ?? createCandidateStore();
   const env = dependencies.env ?? process.env;
@@ -80,7 +90,7 @@ export function createAppServer(dependencies: AppDependencies = {}): Server {
 
       const candidateMatch = url.pathname.match(/^\/candidates\/([^/]+)$/);
       if (method === "GET" && candidateMatch) {
-        const candidateId = decodeURIComponent(candidateMatch[1]);
+        const candidateId = decodeRouteParam(candidateMatch, 1);
         const candidate = store.get(candidateId);
 
         if (!candidate) {
@@ -92,7 +102,7 @@ export function createAppServer(dependencies: AppDependencies = {}): Server {
 
       const promoteMatch = url.pathname.match(/^\/candidates\/([^/]+)\/promote$/);
       if (method === "POST" && promoteMatch) {
-        const candidateId = decodeURIComponent(promoteMatch[1]);
+        const candidateId = decodeRouteParam(promoteMatch, 1);
         const candidate = store.get(candidateId);
 
         if (!candidate) {

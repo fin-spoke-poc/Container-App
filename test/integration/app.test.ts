@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { once } from "node:events";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 
@@ -22,8 +21,9 @@ async function startServer() {
     now: () => "2026-04-13T00:00:00.000Z",
   });
 
-  server.listen(0);
-  await once(server, "listening");
+  await new Promise<void>((resolve) => {
+    server.listen(0, resolve);
+  });
 
   const address = server.address() as AddressInfo;
   const baseUrl = `http://127.0.0.1:${address.port}`;
