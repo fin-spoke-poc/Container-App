@@ -21,5 +21,8 @@
     "@types/node": "^22.10.1",
     "c8": "^10.1.3",
     "typescript": "^5.7.3"
+  },
+  "dependencies": {
+    "lts": "^2.0.0"
   }
 }
