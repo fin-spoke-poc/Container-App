@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       coverage_pct: ${{ steps.proxy_inputs.outputs.coverage_pct }}
+      coverage_threshold_pct: ${{ steps.proxy_inputs.outputs.coverage_threshold_pct }}
       subject_digest: ${{ steps.proxy_inputs.outputs.subject_digest }}
       subject_name: ${{ steps.proxy_inputs.outputs.subject_name }}
 
@@ -70,6 +71,7 @@ jobs:
         subject_digest="sha256:$(printf '%s' "${GITHUB_SHA}" | sha256sum | awk '{print $1}')"
 
         echo "coverage_pct=$coverage_pct" >> "$GITHUB_OUTPUT"
+        echo "coverage_threshold_pct=${{ env.COVERAGE_THRESHOLD_PCT }}" >> "$GITHUB_OUTPUT"
         echo "subject_name=$subject_name" >> "$GITHUB_OUTPUT"
         echo "subject_digest=$subject_digest" >> "$GITHUB_OUTPUT"
 
@@ -126,7 +128,7 @@ jobs:
     with:
       artifact_name: proxy-attest-sign-report
       coverage_pct: ${{ fromJSON(needs.bootstrap-local-ci.outputs.coverage_pct) }}
-      coverage_threshold_pct: ${{ fromJSON(env.COVERAGE_THRESHOLD_PCT) }}
+      coverage_threshold_pct: ${{ fromJSON(needs.bootstrap-local-ci.outputs.coverage_threshold_pct) }}
       enable_signing: false
       subject_digest: ${{ needs.bootstrap-local-ci.outputs.subject_digest }}
       subject_name: ${{ needs.bootstrap-local-ci.outputs.subject_name }}
