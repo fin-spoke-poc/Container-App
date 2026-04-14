@@ -19,6 +19,10 @@ env:
 jobs:
   bootstrap-local-ci:
     runs-on: ubuntu-latest
+    outputs:
+      coverage_pct: ${{ steps.proxy_inputs.outputs.coverage_pct }}
+      subject_digest: ${{ steps.proxy_inputs.outputs.subject_digest }}
+      subject_name: ${{ steps.proxy_inputs.outputs.subject_name }}
 
     steps:
     - name: Checkout
@@ -57,6 +61,18 @@ jobs:
         RULESET_IDS: bootstrap-local-ci
         COVERAGE_THRESHOLD_PCT: ${{ env.COVERAGE_THRESHOLD_PCT }}
 
+    - name: Prepare Proxy-Hub workflow inputs
+      id: proxy_inputs
+      shell: bash
+      run: |
+        coverage_pct="$(node -e "const fs=require('fs'); const evidence=JSON.parse(fs.readFileSync('artifacts/attestation-evidence.json','utf8')); process.stdout.write(String(evidence.coverage_pct));")"
+        subject_name="ghcr.io/${{ github.repository_owner }}/container-app"
+        subject_digest="sha256:$(printf '%s' "${GITHUB_SHA}" | sha256sum | awk '{print $1}')"
+
+        echo "coverage_pct=$coverage_pct" >> "$GITHUB_OUTPUT"
+        echo "subject_name=$subject_name" >> "$GITHUB_OUTPUT"
+        echo "subject_digest=$subject_digest" >> "$GITHUB_OUTPUT"
+
     - name: Build container image
       run: |
         APP_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
@@ -77,3 +93,41 @@ jobs:
           coverage/**
           reports/**
           artifacts/**
+
+  proxy-secret-scan:
+    name: Proxy-Hub Secret Scan
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@main
+    with:
+      artifact_name: proxy-secret-scan-report
+      fail_on_findings: true
+      test_mode: true
+
+  proxy-container-scan:
+    name: Proxy-Hub Container Scan
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-container-scan-proxy.yml@main
+    with:
+      artifact_name: proxy-container-scan-report
+      fail_on_findings: true
+      ignore_unfixed: true
+      scan_target: .
+      scan_type: filesystem
+      severity: HIGH,CRITICAL
+      test_mode: true
+
+  proxy-attest-sign:
+    name: Proxy-Hub Attest And Sign
+    needs:
+    - bootstrap-local-ci
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-attest-sign-proxy.yml@main
+    with:
+      artifact_name: proxy-attest-sign-report
+      coverage_pct: ${{ fromJSON(needs.bootstrap-local-ci.outputs.coverage_pct) }}
+      coverage_threshold_pct: ${{ fromJSON(env.COVERAGE_THRESHOLD_PCT) }}
+      enable_signing: false
+      subject_digest: ${{ needs.bootstrap-local-ci.outputs.subject_digest }}
+      subject_name: ${{ needs.bootstrap-local-ci.outputs.subject_name }}
+      test_mode: true

@@ -148,8 +148,11 @@ Current bootstrap workflow behavior:
 - generates an evidence JSON payload
 - builds the container image
 - uploads coverage, report, and evidence artifacts
+- calls the Proxy-Hub reusable workflows for secret scan, container scan, and attestation flow validation
 
 This keeps the repo self-contained for the POC while preserving the target design that the local workflow should eventually delegate to a BU-owned reusable workflow.
+
+For this POC, the Proxy-Hub jobs in `app-ci.yml` currently call `fin-spoke-poc/Proxy-Hub` on `@main` with `test_mode: true` so the cross-repo invocation path can be validated before the first released proxy tag is cut. Once the first Proxy-Hub release exists, the workflow should move to a released ref such as `@v1`.
 
 ## Coverage And Attestation
 
@@ -300,6 +303,7 @@ This repository is successful when it can demonstrate all of the following:
 The first working scaffold is now in place. The next useful steps are:
 
 1. Replace the bootstrap local CI job with a thin call to the future BU reusable workflow hub.
-2. Wire Proxy-Hub and SecOps required workflows into GitHub Org Rulesets for this repo.
-3. Refresh the lockfile whenever dependencies change so CI and Docker stay reproducible with `npm ci`.
-4. Add one or more dedicated failure branches to validate ruleset enforcement end to end.
+2. Switch the Proxy-Hub caller refs in `app-ci.yml` from `@main` to the first released proxy tag such as `@v1`.
+3. Wire Proxy-Hub and SecOps required workflows into GitHub Org Rulesets for this repo.
+4. Refresh the lockfile whenever dependencies change so CI and Docker stay reproducible with `npm ci`.
+5. Add one or more dedicated failure branches to validate ruleset enforcement end to end.
