@@ -5,7 +5,8 @@
   "description": "Governed test container app for ruleset, attestation, and coverage validation.",
   "type": "module",
   "engines": {
-    "node": ">=20 <21"
+    "node": ">=24 <25",
+    "npm": ">=11 <12"
   },
   "scripts": {
     "clean": "node ./scripts/clean.mjs",

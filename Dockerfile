@@ -1,16 +1,16 @@
-FROM node:20.18.0-alpine3.20 AS build
+FROM node:24-alpine AS build
 
 WORKDIR /app
 
-COPY package.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json ./
 COPY scripts ./scripts
 COPY src ./src
 COPY test ./test
 
-RUN npm install --no-fund --no-audit
+RUN npm ci --no-fund --no-audit
 RUN npm run build
 
-FROM node:20.18.0-alpine3.20 AS runtime
+FROM node:24-alpine AS runtime
 
 ARG APP_VERSION=0.1.0
 ARG GIT_SHA=local

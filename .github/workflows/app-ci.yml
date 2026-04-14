@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: '20'
+  NODE_VERSION: '24'
   APP_NAME: container-app
   COVERAGE_THRESHOLD_PCT: '60'
 
@@ -29,9 +29,10 @@ jobs:
       with:
         node-version: ${{ env.NODE_VERSION }}
         cache: npm
+        cache-dependency-path: package-lock.json
 
     - name: Install dependencies
-      run: npm install --no-fund --no-audit
+      run: npm ci --no-fund --no-audit
 
     - name: Type-check
       run: npm run check
