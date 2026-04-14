@@ -25,7 +25,7 @@ This repo should be the simplest possible app that still exercises those control
 
 ## Recommended Tester App
 
-The recommended implementation is a small Node.js 24 LTS + TypeScript HTTP API with an in-memory store and no external database.
+The recommended implementation is a small Node.js 25 + TypeScript HTTP API with an in-memory store and no external database.
 
 That is the best fit for this POC because it gives us:
 
@@ -269,13 +269,11 @@ The app should not depend on a database, queue, or cloud service for the POC. Th
 
 ## Running The App
 
-Local commands once Node.js 24 LTS is available:
+Local commands once Node.js 25 is available:
 
 1. `npm ci`
 2. `npm run verify`
 3. `npm start`
-
-The repo now targets the current Node.js Active LTS line, which is Node 24. In CI and Docker, npm comes from that Node 24 toolchain.
 
 Useful outputs:
 

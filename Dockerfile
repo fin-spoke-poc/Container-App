@@ -1,4 +1,4 @@
-FROM node:24-alpine AS build
+FROM node:25-alpine AS build
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ COPY test ./test
 RUN npm ci --no-fund --no-audit
 RUN npm run build
 
-FROM node:24-alpine AS runtime
+FROM node:25-alpine AS runtime
 
 ARG APP_VERSION=0.1.0
 ARG GIT_SHA=local
