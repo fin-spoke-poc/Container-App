@@ -34,6 +34,15 @@ LABEL org.opencontainers.image.title="container-app" \
       org.opencontainers.image.revision=${GIT_SHA} \
       org.opencontainers.image.created=${BUILD_TIMESTAMP}
 
+RUN apk upgrade --no-cache \
+    libcrypto3 \
+    libssl3 \
+    musl \
+    musl-utils \
+    zlib \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx
+
 WORKDIR /app
 
 COPY --from=build /app/dist ./dist
