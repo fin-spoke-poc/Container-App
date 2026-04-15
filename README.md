@@ -145,14 +145,14 @@ Current bootstrap workflow behavior:
 - runs TypeScript type-checking
 - runs unit and integration tests with coverage gating at 60%
 - generates a local SPDX-style SBOM artifact
-- generates an evidence JSON payload
-- builds the container image
+- publishes the container image to GHCR
+- generates an evidence JSON payload that includes the published image digest
 - uploads coverage, report, and evidence artifacts
-- calls the Proxy-Hub reusable workflows for secret scan, container scan, and attestation flow validation
+- calls the Proxy-Hub reusable workflows for secret scan, container image scan, and attestation flow validation
 
 This keeps the repo self-contained for the POC while preserving the target design that the local workflow should eventually delegate to a BU-owned reusable workflow.
 
-For this POC, the Proxy-Hub jobs in `app-ci.yml` currently call `fin-spoke-poc/Proxy-Hub` on `@main` with `test_mode: true` so the cross-repo invocation path can be validated before the first released proxy tag is cut. Once the first Proxy-Hub release exists, the workflow should move to a released ref such as `@v1`.
+For this POC, the Proxy-Hub jobs in `app-ci.yml` now run the real upstream path without mock runtime inputs. Mock contract coverage is retained in the upstream SecOps validation workflow so reusable workflow behavior can still be tested before release. Once the first Proxy-Hub release exists, the workflow should move from `@main` to a released ref such as `@v1`.
 
 ## Coverage And Attestation
 
@@ -181,7 +181,7 @@ Suggested evidence payload:
 	"commit_sha": "<git sha>",
 	"image": "ghcr.io/<org>/container-app",
 	"image_tag": "<git sha>",
-	"image_digest": "pending-publish",
+	"image_digest": "sha256:<published digest>",
 	"coverage_pct": 78.4,
 	"coverage_threshold_pct": 60,
 	"coverage_report_digest": "sha256:<digest>",

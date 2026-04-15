@@ -15,15 +15,20 @@ env:
   NODE_VERSION: '25'
   APP_NAME: container-app
   COVERAGE_THRESHOLD_PCT: '60'
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/container-app
 
 jobs:
   bootstrap-local-ci:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
-      coverage_pct: ${{ steps.proxy_inputs.outputs.coverage_pct }}
-      coverage_threshold_pct: ${{ steps.proxy_inputs.outputs.coverage_threshold_pct }}
-      subject_digest: ${{ steps.proxy_inputs.outputs.subject_digest }}
-      subject_name: ${{ steps.proxy_inputs.outputs.subject_name }}
+      coverage_pct: ${{ steps.workflow_outputs.outputs.coverage_pct }}
+      coverage_threshold_pct: ${{ steps.workflow_outputs.outputs.coverage_threshold_pct }}
+      scan_target: ${{ steps.workflow_outputs.outputs.scan_target }}
+      subject_digest: ${{ steps.workflow_outputs.outputs.subject_digest }}
+      subject_name: ${{ steps.workflow_outputs.outputs.subject_name }}
 
     steps:
     - name: Checkout
@@ -50,41 +55,68 @@ jobs:
     - name: Generate local SBOM
       run: npm run sbom
 
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Login to GHCR
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Prepare image metadata
+      id: image_metadata
+      shell: bash
+      run: |
+        app_version="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
+        build_timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+        echo "app_version=$app_version" >> "$GITHUB_OUTPUT"
+        echo "build_timestamp=$build_timestamp" >> "$GITHUB_OUTPUT"
+
+    - name: Build and publish container image
+      id: publish_image
+      uses: docker/build-push-action@v6
+      with:
+        context: .
+        push: true
+        tags: |
+          ${{ env.IMAGE_NAME }}:${{ github.sha }}
+        labels: |
+          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+        build-args: |
+          APP_VERSION=${{ steps.image_metadata.outputs.app_version }}
+          GIT_SHA=${{ github.sha }}
+          BUILD_TIMESTAMP=${{ steps.image_metadata.outputs.build_timestamp }}
+
     - name: Generate evidence payload
       run: npm run generate:evidence
       env:
         APP_NAME: ${{ env.APP_NAME }}
         ENVIRONMENT: ci
         GIT_SHA: ${{ github.sha }}
-        IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/container-app
+        IMAGE_NAME: ${{ env.IMAGE_NAME }}
         IMAGE_TAG: ${{ github.sha }}
+        IMAGE_DIGEST: ${{ steps.publish_image.outputs.digest }}
         GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
         RULESET_IDS: bootstrap-local-ci
         COVERAGE_THRESHOLD_PCT: ${{ env.COVERAGE_THRESHOLD_PCT }}
 
-    - name: Prepare Proxy-Hub workflow inputs
-      id: proxy_inputs
+    - name: Prepare workflow outputs
+      id: workflow_outputs
       shell: bash
       run: |
         coverage_pct="$(node -e "const fs=require('fs'); const evidence=JSON.parse(fs.readFileSync('artifacts/attestation-evidence.json','utf8')); process.stdout.write(String(evidence.coverage_pct));")"
-        subject_name="ghcr.io/${{ github.repository_owner }}/container-app"
-        subject_digest="sha256:$(printf '%s' "${GITHUB_SHA}" | sha256sum | awk '{print $1}')"
+        subject_name="${{ env.IMAGE_NAME }}"
+        subject_digest="${{ steps.publish_image.outputs.digest }}"
+        scan_target="${subject_name}@${subject_digest}"
 
         echo "coverage_pct=$coverage_pct" >> "$GITHUB_OUTPUT"
         echo "coverage_threshold_pct=${{ env.COVERAGE_THRESHOLD_PCT }}" >> "$GITHUB_OUTPUT"
+        echo "scan_target=$scan_target" >> "$GITHUB_OUTPUT"
         echo "subject_name=$subject_name" >> "$GITHUB_OUTPUT"
         echo "subject_digest=$subject_digest" >> "$GITHUB_OUTPUT"
-
-    - name: Build container image
-      run: |
-        APP_VERSION="$(node -p "JSON.parse(require('fs').readFileSync('package.json', 'utf8')).version")"
-        BUILD_TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-        docker build \
-          --build-arg APP_VERSION="${APP_VERSION}" \
-          --build-arg GIT_SHA="${GITHUB_SHA}" \
-          --build-arg BUILD_TIMESTAMP="${BUILD_TIMESTAMP}" \
-          --tag container-app:${GITHUB_SHA} \
-          .
 
     - name: Upload evidence artifacts
       if: always()
@@ -102,24 +134,29 @@ jobs:
     with:
       artifact_name: proxy-secret-scan-report
       fail_on_findings: true
-      test_mode: true
 
   proxy-container-scan:
     name: Proxy-Hub Container Scan
+    needs:
+    - bootstrap-local-ci
+    permissions:
+      contents: read
+      packages: read
     uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-container-scan-proxy.yml@main
     with:
       artifact_name: proxy-container-scan-report
       fail_on_findings: true
       ignore_unfixed: true
-      scan_target: .
-      scan_type: filesystem
+      scan_target: ${{ needs.bootstrap-local-ci.outputs.scan_target }}
+      scan_type: image
       severity: HIGH,CRITICAL
-      test_mode: true
 
   proxy-attest-sign:
     name: Proxy-Hub Attest And Sign
     needs:
     - bootstrap-local-ci
+    - proxy-secret-scan
+    - proxy-container-scan
     permissions:
       attestations: write
       contents: read
@@ -132,4 +169,3 @@ jobs:
       enable_signing: false
       subject_digest: ${{ needs.bootstrap-local-ci.outputs.subject_digest }}
       subject_name: ${{ needs.bootstrap-local-ci.outputs.subject_name }}
-      test_mode: true
