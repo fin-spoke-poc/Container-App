@@ -158,9 +158,11 @@ jobs:
     - proxy-secret-scan
     - proxy-container-scan
     permissions:
+      artifact-metadata: write
       attestations: write
       contents: read
       id-token: write
+      packages: write
     uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-attest-sign-proxy.yml@main
     with:
       artifact_name: proxy-attest-sign-report
