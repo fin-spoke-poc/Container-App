@@ -36,7 +36,7 @@ That is the best fit for this POC because it gives us:
 - Simple Docker multi-stage builds.
 - Low app complexity, so pipeline failures are easy to attribute to governance controls rather than application design.
 
-This repository now implements that design using the Node.js standard library for the HTTP surface, an in-memory candidate store, Node's built-in test runner, and local scripts that generate coverage, JUnit, SBOM, and evidence artifacts.
+This repository implements that design using the Node.js standard library for the HTTP surface, an in-memory candidate store, Node's built-in test runner, and local scripts that generate coverage, JUnit, SBOM, and evidence artifacts.
 
 ## App Shape
 
@@ -47,7 +47,7 @@ Suggested endpoints:
 - `GET /healthz`: liveness probe.
 - `GET /readyz`: readiness probe.
 - `GET /version`: returns commit SHA, image tag, build timestamp, and workflow metadata passed via env vars.
-- `POST /candidates`: creates a mock release candidate with validation rules.
+- `POST /candidates`: creates a release candidate with validation rules.
 - `GET /candidates/:id`: returns a stored candidate.
 - `POST /candidates/:id/promote`: applies simple promotion rules such as required test status, required scan status, and required signature flag.
 
@@ -148,15 +148,15 @@ Current bootstrap workflow behavior:
 - publishes the container image to GHCR
 - generates an evidence JSON payload that includes the published image digest
 - uploads coverage, report, and evidence artifacts
-- calls the Proxy-Hub reusable workflows for secret scan, container image scan, and attestation flow validation
+- calls the Proxy-Hub reusable workflows for secret scan, container image scan, and attestation flow enforcement
 
-This keeps the repo self-contained for the POC while preserving the target design that the local workflow should eventually delegate to a BU-owned reusable workflow.
+This keeps the repo self-contained for the MVP while preserving the target design that the local workflow should eventually delegate to a BU-owned reusable workflow.
 
-For this POC, the Proxy-Hub jobs in `app-ci.yml` now run the real upstream path without mock runtime inputs. Mock contract coverage is retained in the upstream SecOps validation workflow so reusable workflow behavior can still be tested before release. Once the first Proxy-Hub release exists, the workflow should move from `@main` to a released ref such as `@v1`.
+For this MVP, the Proxy-Hub jobs in `app-ci.yml` run the real upstream path end-to-end. The upstream SecOps validation workflow still executes the reusable workflows before release, but the delivery path no longer includes synthetic runtime inputs or report branches. Once the first Proxy-Hub release exists, the workflow should move from `@main` to a released ref such as `@v1`.
 
 ## Coverage And Attestation
 
-Coverage must be part of the chain of evidence for this POC.
+Coverage must be part of the chain of evidence for this MVP.
 
 Per the quality-gate docs, the baseline threshold should be:
 
@@ -239,8 +239,8 @@ To make the repo useful for governance testing, it should intentionally support 
 
 - coverage below threshold to confirm merge or publish block
 - lint failure to confirm platform ruleset enforcement
-- secret fixture committed to confirm security ruleset enforcement
-- vulnerable dependency fixture to confirm SCA or PointGuard block
+- intentional secret committed on a disposable branch to confirm security ruleset enforcement
+- intentionally vulnerable dependency on a disposable branch to confirm SCA or PointGuard block
 - missing attestation or invalid signature to confirm downstream rejection
 - failing integration test to confirm BU workflow gating
 
@@ -248,7 +248,7 @@ The ideal pattern is to keep `main` green and use dedicated test branches or con
 
 The current implementation also lets you simulate these cases by posting custom `qualitySignals` values to `POST /candidates` before calling `POST /candidates/:id/promote`.
 
-Suggested branch names for POC runs:
+Suggested branch names for MVP runs:
 
 - `test/coverage-below-threshold`
 - `test/lint-failure`
@@ -268,7 +268,7 @@ The image should stay intentionally simple but production-like enough to validat
 - health endpoint for probe validation
 - deterministic build output where possible
 
-The app should not depend on a database, queue, or cloud service for the POC. That would introduce noise into pipeline validation.
+The app should not depend on a database, queue, or cloud service for the MVP. That would introduce noise into pipeline validation.
 
 ## Running The App
 
@@ -287,7 +287,7 @@ Useful outputs:
 - `artifacts/sbom.spdx.json`
 - `artifacts/attestation-evidence.json`
 
-## POC Success Criteria
+## MVP Success Criteria
 
 This repository is successful when it can demonstrate all of the following:
 
