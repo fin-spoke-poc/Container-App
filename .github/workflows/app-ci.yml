@@ -19,6 +19,7 @@ env:
 
 jobs:
   bootstrap-local-ci:
+    name: Bootstrap Local CI
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -130,6 +131,8 @@ jobs:
 
   proxy-secret-scan:
     name: Proxy-Hub Secret Scan
+    needs:
+    - bootstrap-local-ci
     uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@main
     with:
       artifact_name: proxy-secret-scan-report
