@@ -133,7 +133,7 @@ jobs:
     name: Proxy-Hub Secret Scan
     needs:
     - bootstrap-local-ci
-    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@main
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@feat/multi-attest-targets
     with:
       artifact_name: proxy-secret-scan-report
       fail_on_findings: true
@@ -145,7 +145,7 @@ jobs:
     permissions:
       contents: read
       packages: read
-    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-container-scan-proxy.yml@main
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-container-scan-proxy.yml@feat/multi-attest-targets
     with:
       artifact_name: proxy-container-scan-report
       fail_on_findings: true
@@ -166,7 +166,7 @@ jobs:
       contents: read
       id-token: write
       packages: write
-    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-attest-sign-proxy.yml@main
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-attest-sign-proxy.yml@feat/multi-attest-targets
     with:
       artifact_name: proxy-attest-sign-report
       coverage_pct: ${{ fromJSON(needs.bootstrap-local-ci.outputs.coverage_pct) }}
