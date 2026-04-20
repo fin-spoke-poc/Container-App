@@ -130,7 +130,7 @@ jobs:
           artifacts/**
 
   proxy-secret-scan:
-    name: Proxy-Hub Secret Scan
+    name: "Local Org Proxy - Secret Scan"
     needs:
     - bootstrap-local-ci
     uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@main
@@ -139,7 +139,7 @@ jobs:
       fail_on_findings: true
 
   proxy-container-scan:
-    name: Proxy-Hub Container Scan
+    name: "Local Org Proxy - Container Scan"
     needs:
     - bootstrap-local-ci
     permissions:
@@ -155,7 +155,7 @@ jobs:
       severity: HIGH,CRITICAL
 
   proxy-attest-sign:
-    name: Proxy-Hub Attest And Sign
+    name: "Local Org Proxy - Attest/Sign"
     needs:
     - bootstrap-local-ci
     - proxy-secret-scan
