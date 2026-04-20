@@ -145,12 +145,14 @@ Current bootstrap workflow behavior:
 - runs TypeScript type-checking
 - runs unit and integration tests with coverage gating at 60%
 - generates a local SPDX-style SBOM artifact
-- publishes the container image to GHCR
+- publishes the container image to GHCR by default, with manual workflow dispatch support for ACR, ECR, and GAR validation
 - generates an evidence JSON payload that includes the published image digest
 - uploads coverage, report, and evidence artifacts
 - calls the Proxy-Hub reusable workflows for secret scan, container image scan, and attestation flow enforcement
 
 This keeps the repo self-contained for the MVP while preserving the target design that the local workflow should eventually delegate to a BU-owned reusable workflow.
+
+Manual workflow dispatch now exposes the same registry and OIDC input names used by Proxy-Hub and SecOps: `registry_provider`, `registry_server`, `aws_region`, `aws_role_to_assume`, `azure_client_id`, `azure_tenant_id`, `azure_subscription_id`, `gcp_workload_identity_provider`, and `gcp_service_account`. Pull requests continue to use the default GHCR path.
 
 For this MVP, the Proxy-Hub jobs in `app-ci.yml` run the real upstream path end-to-end. The upstream SecOps validation workflow still executes the reusable workflows before release, but the delivery path no longer includes synthetic runtime inputs or report branches. Once the first Proxy-Hub release exists, the workflow should move from `@main` to a released ref such as `@v1`.
 
