@@ -2,7 +2,54 @@ name: App CI
 
 on:
   workflow_dispatch:
-# pull_request:
+    inputs:
+      registry_provider:
+        description: Container registry provider. Leave ghcr for the default path or choose acr, ecr, or gar for manual validation.
+        required: false
+        type: choice
+        default: ghcr
+        options:
+        - ghcr
+        - acr
+        - ecr
+        - gar
+      registry_server:
+        description: Container registry host. Leave blank when it can be inferred from the subject name.
+        required: false
+        type: string
+      subject_name:
+        description: OCI image reference without a tag. Leave blank to use ghcr.io/<owner>/container-app; required for acr, ecr, and gar validation.
+        required: false
+        type: string
+      aws_region:
+        description: AWS region used for Amazon ECR authentication when it cannot be inferred from the image reference.
+        required: false
+        type: string
+      aws_role_to_assume:
+        description: AWS IAM role ARN used for Amazon ECR authentication via GitHub OIDC.
+        required: false
+        type: string
+      azure_client_id:
+        description: Azure client ID used for Azure Container Registry authentication via GitHub OIDC.
+        required: false
+        type: string
+      azure_subscription_id:
+        description: Azure subscription ID used for Azure Container Registry authentication via GitHub OIDC.
+        required: false
+        type: string
+      azure_tenant_id:
+        description: Azure tenant ID used for Azure Container Registry authentication via GitHub OIDC.
+        required: false
+        type: string
+      gcp_service_account:
+        description: Google service account email used for Google Artifact Registry authentication via workload identity federation.
+        required: false
+        type: string
+      gcp_workload_identity_provider:
+        description: Google workload identity provider used for Google Artifact Registry authentication.
+        required: false
+        type: string
+  pull_request:
 # push:
 #   branches:
 #   - main
@@ -15,7 +62,7 @@ env:
   NODE_VERSION: '25'
   APP_NAME: container-app
   COVERAGE_THRESHOLD_PCT: '60'
-  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/container-app
+  DEFAULT_SUBJECT_NAME: ghcr.io/${{ github.repository_owner }}/container-app
 
 jobs:
   bootstrap-local-ci:
@@ -23,10 +70,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
       packages: write
     outputs:
+      aws_region: ${{ steps.workflow_outputs.outputs.aws_region }}
       coverage_pct: ${{ steps.workflow_outputs.outputs.coverage_pct }}
       coverage_threshold_pct: ${{ steps.workflow_outputs.outputs.coverage_threshold_pct }}
+      registry_provider: ${{ steps.workflow_outputs.outputs.registry_provider }}
+      registry_server: ${{ steps.workflow_outputs.outputs.registry_server }}
       scan_target: ${{ steps.workflow_outputs.outputs.scan_target }}
       subject_digest: ${{ steps.workflow_outputs.outputs.subject_digest }}
       subject_name: ${{ steps.workflow_outputs.outputs.subject_name }}
@@ -59,12 +110,173 @@ jobs:
     - name: Setup Docker Buildx
       uses: docker/setup-buildx-action@v4
 
-    - name: Login to GHCR
+    - name: Resolve registry context
+      id: registry_context
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        provider="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.registry_provider || 'ghcr' }}"
+        registry_server="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.registry_server || '' }}"
+        subject_name_input="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.subject_name || '' }}"
+        aws_region="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.aws_region || '' }}"
+        default_subject_name="${{ env.DEFAULT_SUBJECT_NAME }}"
+        subject_name="$subject_name_input"
+        should_login=false
+        acr_name=""
+        ecr_registry_type="private"
+
+        if [[ -z "$subject_name" ]]; then
+          subject_name="$default_subject_name"
+        fi
+
+        if [[ -z "$registry_server" && "$subject_name" == */* ]]; then
+          first_component="${subject_name%%/*}"
+
+          if [[ "$first_component" == *.* || "$first_component" == *:* || "$first_component" == "localhost" ]]; then
+            registry_server="$first_component"
+          fi
+        fi
+
+        if [[ -z "$provider" ]]; then
+          provider="ghcr"
+        fi
+
+        case "$provider" in
+          ghcr)
+            should_login=true
+            if [[ -z "$registry_server" ]]; then
+              registry_server="ghcr.io"
+            fi
+            ;;
+          acr)
+            should_login=true
+            if [[ "$subject_name" == "$default_subject_name" ]]; then
+              echo "ACR validation requires workflow_dispatch input subject_name."
+              exit 1
+            fi
+            if [[ -z "$registry_server" || "$registry_server" != *.azurecr.io ]]; then
+              echo "ACR authentication requires a registry_server like <name>.azurecr.io."
+              exit 1
+            fi
+            acr_name="${registry_server%%.*}"
+            if [[ -z "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_client_id || '' }}" || -z "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_tenant_id || '' }}" || -z "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_subscription_id || '' }}" ]]; then
+              echo "ACR authentication requires azure_client_id, azure_tenant_id, and azure_subscription_id."
+              exit 1
+            fi
+            ;;
+          ecr)
+            should_login=true
+            if [[ "$subject_name" == "$default_subject_name" ]]; then
+              echo "ECR validation requires workflow_dispatch input subject_name."
+              exit 1
+            fi
+            if [[ -z "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.aws_role_to_assume || '' }}" ]]; then
+              echo "ECR authentication requires aws_role_to_assume."
+              exit 1
+            fi
+            if [[ "$registry_server" == "public.ecr.aws" ]]; then
+              ecr_registry_type="public"
+              if [[ -z "$aws_region" ]]; then
+                aws_region="us-east-1"
+              fi
+            elif [[ "$registry_server" =~ ^[0-9]{12}\.dkr\.ecr\.([a-z0-9-]+)\.amazonaws\.com$ ]]; then
+              if [[ -z "$aws_region" ]]; then
+                aws_region="${BASH_REMATCH[1]}"
+              fi
+            fi
+            if [[ -z "$aws_region" ]]; then
+              echo "ECR authentication requires aws_region or an ECR registry host that includes the region."
+              exit 1
+            fi
+            ;;
+          gar)
+            should_login=true
+            if [[ "$subject_name" == "$default_subject_name" ]]; then
+              echo "GAR validation requires workflow_dispatch input subject_name."
+              exit 1
+            fi
+            if [[ -z "$registry_server" || "$registry_server" != *-docker.pkg.dev ]]; then
+              echo "GAR authentication requires a registry_server like <location>-docker.pkg.dev."
+              exit 1
+            fi
+            if [[ -z "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gcp_workload_identity_provider || '' }}" || -z "${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gcp_service_account || '' }}" ]]; then
+              echo "GAR authentication requires gcp_workload_identity_provider and gcp_service_account."
+              exit 1
+            fi
+            ;;
+          *)
+            echo "registry_provider must be ghcr, acr, ecr, or gar."
+            exit 1
+            ;;
+        esac
+
+        if [[ "$subject_name" != "$registry_server/"* ]]; then
+          echo "subject_name must begin with ${registry_server}/"
+          exit 1
+        fi
+
+        {
+          echo "provider=$provider"
+          echo "registry_server=$registry_server"
+          echo "subject_name=$subject_name"
+          echo "should_login=$should_login"
+          echo "acr_name=$acr_name"
+          echo "aws_region=$aws_region"
+          echo "ecr_registry_type=$ecr_registry_type"
+        } >> "$GITHUB_OUTPUT"
+
+    - name: Login to GitHub Container Registry
+      if: ${{ steps.registry_context.outputs.provider == 'ghcr' }}
       uses: docker/login-action@v4
       with:
-        registry: ghcr.io
+        registry: ${{ steps.registry_context.outputs.registry_server }}
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Login to Azure
+      if: ${{ steps.registry_context.outputs.provider == 'acr' }}
+      uses: azure/login@v3
+      with:
+        client-id: ${{ github.event.inputs.azure_client_id }}
+        tenant-id: ${{ github.event.inputs.azure_tenant_id }}
+        subscription-id: ${{ github.event.inputs.azure_subscription_id }}
+
+    - name: Login to Azure Container Registry
+      if: ${{ steps.registry_context.outputs.provider == 'acr' }}
+      shell: bash
+      run: az acr login --name "${{ steps.registry_context.outputs.acr_name }}"
+
+    - name: Configure AWS credentials
+      if: ${{ steps.registry_context.outputs.provider == 'ecr' }}
+      uses: aws-actions/configure-aws-credentials@v6
+      with:
+        aws-region: ${{ steps.registry_context.outputs.aws_region }}
+        role-to-assume: ${{ github.event.inputs.aws_role_to_assume }}
+        role-session-name: app-ci-${{ github.run_id }}
+
+    - name: Login to Amazon ECR
+      if: ${{ steps.registry_context.outputs.provider == 'ecr' }}
+      uses: aws-actions/amazon-ecr-login@v2
+      with:
+        registry-type: ${{ steps.registry_context.outputs.ecr_registry_type }}
+
+    - name: Authenticate to Google Cloud
+      if: ${{ steps.registry_context.outputs.provider == 'gar' }}
+      id: google_auth
+      uses: google-github-actions/auth@v3
+      with:
+        workload_identity_provider: ${{ github.event.inputs.gcp_workload_identity_provider }}
+        service_account: ${{ github.event.inputs.gcp_service_account }}
+        token_format: access_token
+
+    - name: Login to Google Artifact Registry
+      if: ${{ steps.registry_context.outputs.provider == 'gar' }}
+      uses: docker/login-action@v4
+      with:
+        registry: ${{ steps.registry_context.outputs.registry_server }}
+        username: oauth2accesstoken
+        password: ${{ steps.google_auth.outputs.access_token }}
 
     - name: Prepare image metadata
       id: image_metadata
@@ -83,7 +295,7 @@ jobs:
         context: .
         push: true
         tags: |
-          ${{ env.IMAGE_NAME }}:${{ github.sha }}
+          ${{ steps.registry_context.outputs.subject_name }}:${{ github.sha }}
         labels: |
           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
         build-args: |
@@ -97,7 +309,7 @@ jobs:
         APP_NAME: ${{ env.APP_NAME }}
         ENVIRONMENT: ci
         GIT_SHA: ${{ github.sha }}
-        IMAGE_NAME: ${{ env.IMAGE_NAME }}
+        IMAGE_NAME: ${{ steps.registry_context.outputs.subject_name }}
         IMAGE_TAG: ${{ github.sha }}
         IMAGE_DIGEST: ${{ steps.publish_image.outputs.digest }}
         GITHUB_WORKFLOW_REF: ${{ github.workflow_ref }}
@@ -109,12 +321,15 @@ jobs:
       shell: bash
       run: |
         coverage_pct="$(node -e "const fs=require('fs'); const evidence=JSON.parse(fs.readFileSync('artifacts/attestation-evidence.json','utf8')); process.stdout.write(String(evidence.coverage_pct));")"
-        subject_name="${{ env.IMAGE_NAME }}"
+        subject_name="${{ steps.registry_context.outputs.subject_name }}"
         subject_digest="${{ steps.publish_image.outputs.digest }}"
         scan_target="${subject_name}@${subject_digest}"
 
+        echo "aws_region=${{ steps.registry_context.outputs.aws_region }}" >> "$GITHUB_OUTPUT"
         echo "coverage_pct=$coverage_pct" >> "$GITHUB_OUTPUT"
         echo "coverage_threshold_pct=${{ env.COVERAGE_THRESHOLD_PCT }}" >> "$GITHUB_OUTPUT"
+        echo "registry_provider=${{ steps.registry_context.outputs.provider }}" >> "$GITHUB_OUTPUT"
+        echo "registry_server=${{ steps.registry_context.outputs.registry_server }}" >> "$GITHUB_OUTPUT"
         echo "scan_target=$scan_target" >> "$GITHUB_OUTPUT"
         echo "subject_name=$subject_name" >> "$GITHUB_OUTPUT"
         echo "subject_digest=$subject_digest" >> "$GITHUB_OUTPUT"
@@ -133,7 +348,7 @@ jobs:
     name: "Local Org Proxy - Secret Scan"
     needs:
     - bootstrap-local-ci
-    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@main
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-secret-scan-proxy.yml@feat/dispatch
     with:
       artifact_name: proxy-secret-scan-report
       fail_on_findings: true
@@ -144,12 +359,22 @@ jobs:
     - bootstrap-local-ci
     permissions:
       contents: read
+      id-token: write
       packages: read
-    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-container-scan-proxy.yml@main
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-container-scan-proxy.yml@feat/dispatch
     with:
       artifact_name: proxy-container-scan-report
+      aws_region: ${{ needs.bootstrap-local-ci.outputs.aws_region }}
+      aws_role_to_assume: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.aws_role_to_assume || '' }}
+      azure_client_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_client_id || '' }}
+      azure_subscription_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_subscription_id || '' }}
+      azure_tenant_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_tenant_id || '' }}
       fail_on_findings: true
+      gcp_service_account: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gcp_service_account || '' }}
+      gcp_workload_identity_provider: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gcp_workload_identity_provider || '' }}
       ignore_unfixed: true
+      registry_provider: ${{ needs.bootstrap-local-ci.outputs.registry_provider }}
+      registry_server: ${{ needs.bootstrap-local-ci.outputs.registry_server }}
       scan_target: ${{ needs.bootstrap-local-ci.outputs.scan_target }}
       scan_type: image
       severity: HIGH,CRITICAL
@@ -166,11 +391,20 @@ jobs:
       contents: read
       id-token: write
       packages: write
-    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-attest-sign-proxy.yml@main
+    uses: fin-spoke-poc/Proxy-Hub/.github/workflows/secops-attest-sign-proxy.yml@feat/dispatch
     with:
       artifact_name: proxy-attest-sign-report
+      aws_region: ${{ needs.bootstrap-local-ci.outputs.aws_region }}
+      aws_role_to_assume: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.aws_role_to_assume || '' }}
+      azure_client_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_client_id || '' }}
+      azure_subscription_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_subscription_id || '' }}
+      azure_tenant_id: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.azure_tenant_id || '' }}
       coverage_pct: ${{ fromJSON(needs.bootstrap-local-ci.outputs.coverage_pct) }}
       coverage_threshold_pct: ${{ fromJSON(needs.bootstrap-local-ci.outputs.coverage_threshold_pct) }}
       enable_signing: false
+      gcp_service_account: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gcp_service_account || '' }}
+      gcp_workload_identity_provider: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.gcp_workload_identity_provider || '' }}
+      registry_provider: ${{ needs.bootstrap-local-ci.outputs.registry_provider }}
+      registry_server: ${{ needs.bootstrap-local-ci.outputs.registry_server }}
       subject_digest: ${{ needs.bootstrap-local-ci.outputs.subject_digest }}
       subject_name: ${{ needs.bootstrap-local-ci.outputs.subject_name }}
